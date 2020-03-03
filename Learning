@@ -1,0 +1,119 @@
+from catboost import CatBoostClassifier
+import pandas as pd
+from sklearn.model_selection import train_test_split
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+from sklearn.metrics import f1_score, accuracy_score
+import seaborn as sns #图表模块
+
+#import matplotlib.pyplot as plt #绘图模块库
+
+data = pd.read_csv("weatherAUS.csv")
+
+data = data.drop(columns=['MaxTemp','WindGustDir','WindGustSpeed','WindDir9am','WindDir3pm','WindSpeed9am'],axis=1)
+data = data.drop(columns=['Humidity9am','Pressure9am','Temp9am','Sunshine','Evaporation','Cloud3pm','Cloud9am','Location'],axis=1)
+data = data.drop(columns=['RISK_MM','Date','RainTomorrow'],axis=1)
+data = data.dropna(how='any')
+
+print(data.describe())
+z = np.abs(stats.zscore(data._get_numeric_data()))
+data= data[(z < 3).all(axis=1)]
+a = pd.qcut(data['WindSpeed3pm'],3)
+b = pd.qcut(data['Pressure3pm'],3)
+
+data["WindSpeedCategory"] = 0;
+data["PressureCategory"] = 0;
+data["RainTomorrow"] = 0;
+data["f"] = 0;
+
+data.loc[data['WindSpeed3pm'] <= 22, 'WindSpeedCategory'] = 'Moderate'
+data.loc[data['WindSpeed3pm'] <= 15, 'WindSpeedCategory'] = 'Light'
+data.loc[data['WindSpeed3pm'] > 22, 'WindSpeedCategory'] = 'Strong'
+
+data.loc[data['WindSpeedCategory'] == 'Moderate', 'WindSpeed3pm'] = 0.8
+data.loc[data['WindSpeedCategory'] == 'Light', 'WindSpeed3pm'] = 0.6
+data.loc[data['WindSpeedCategory'] == 'Strong', 'WindSpeed3pm'] = 1
+
+data.loc[data['Pressure3pm'] <= 1019, 'PressureCategory'] = 'Medium'
+data.loc[data['Pressure3pm'] <= 1013, 'PressureCategory'] = 'Low'
+data.loc[data['Pressure3pm'] > 1019, 'PressureCategory'] = 'High'
+
+data.loc[data['PressureCategory'] == 'Medium', 'Pressure3pm'] = 0.9
+data.loc[data['PressureCategory'] == 'Low', 'Pressure3pm'] = 0.8
+data.loc[data['PressureCategory'] == 'High', 'Pressure3pm'] = 1
+
+
+g = 0.4 * data['MinTemp'] + 0.6 * data['Temp3pm']
+data["f"] = 0.1 * g * data['WindSpeed3pm'] * data['Pressure3pm']*data['Humidity3pm'] - data['Rainfall']
+#data["f"] = g * data['WindSpeed3pm'] * data['Pressure3pm']*data['Humidity3pm'] - data['Rainfall']
+
+
+c = pd.qcut(data["f"],4)
+print(c)
+print(data["f"])
+data.loc[data['f'] > 77, 'RainTomorrow'] = 'Torrential Rain'
+data.loc[data['f'] <= 77, 'RainTomorrow'] = 'Heavy Rain'
+data.loc[data['f'] <= 52, 'RainTomorrow'] = 'Moderate Rain'
+data.loc[data['f'] <= 35, 'RainTomorrow'] = 'Sunny'
+data = data.drop(columns=['f','Pressure3pm','WindSpeed3pm'],axis=1)
+
+
+X_train, X_validation, y_train, y_validation = train_test_split(data.iloc[:,:-1],data.iloc[:,-1],test_size=0.1 , random_state=0)
+X_train1, X_validation1, y_train1, y_validation1 = train_test_split(data.iloc[:,:-1],data.iloc[:,-1],test_size=0.95 , random_state=0)
+categorical_features_indices = np.where(X_train.dtypes != np.float)[0]
+
+colormap = plt.cm.RdBu
+# 绘图库中的颜色查找表。比如A1是红色,A2是浅蓝色。 这样一种映射关系
+
+#plt.figure(figsize=(14,12))#创建一个新的图表，参数是尺寸，单位为英寸。
+
+#plt.title('Pearson Correlation of Features', y=1.05, size=15) #给图表一个标题~~
+
+#f, ax = plt.subplots(figsize=(16, 9))
+#ax = sns.heatmap(data.corr())
+#(data.corr()) #将皮尔森系数值画成图表形式。
+
+#plt.show()
+pd.set_option('display.max_columns', None)
+#data = data.drop(columns=['f'],axis=1)
+#print(data.describe())
+
+
+
+model = CatBoostClassifier(iterations=500, depth=6,cat_features=categorical_features_indices, loss_function='MultiClass')
+model.fit(X_train,y_train)
+
+
+model1 = CatBoostClassifier(iterations=500, depth=6,cat_features=categorical_features_indices, loss_function='MultiClass')
+model1.fit(X_train1,y_train1)
+
+
+
+
+
+print('MultiClass model accuracy :',model1.score(X_train,y_train))
+y_pred = model1.predict(X_validation)
+# 模型评价
+#f1 = f1_score(y_validation, y_pred, average='macro')
+acc = accuracy_score(y_validation, y_pred)
+#sprint('f1 : ', f1)
+
+print('MultiClass test accuracy : ', acc)
+
+
+
+
+
+fea_ = model.feature_importances_
+fea_1 = model1.feature_importances_
+fea_name = model.feature_names_
+plt.figure(figsize=(10, 10))
+plt.barh(fea_name,fea_,height =0.5, alpha = 0.6 ,label='80% data')
+plt.barh(fea_name,fea_1,height =0.5 ,alpha = 0.6, label='5% data')
+plt.legend();
+plt.show()
+print(fea_)
+
+print(fea_1)
+
